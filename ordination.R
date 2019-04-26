@@ -1,110 +1,76 @@
-############################################################################
-## Ordination code for final paper in BIOL 419: Modern Statistical Models ##
-## Author: Vaughn Shirey, April 1st, 2019                                 ##
-############################################################################
+## Code for testing fourth-corner method with Cascadia butterflies ##
 
-## Import libraries ##
-library(ggfortify)
+## Call packages ##
+library(ade4)
+library(vegan)
 
-## Set seed ##
-set.seed(04012019)
+## Read in matrixes ##
+R <- read.csv("EnvironmentalMatrix.csv", header = TRUE) # read environmental data
+L <- read.csv("AbundanceMatrixNormalized.csv", header = TRUE) # read transect data
+Q <- read.csv("SpeciesTraitMatrix.csv", header = TRUE) # read trait data
 
-## Establish constants ##
-numSpecies <- 3
-numSites <- 3
+## Convert to appropriate format ##
+R2 <- R[,-1]
+rownames(R2) <- R[,1]
+L2 <- L[,-1]
+rownames(L2) <- L[,1]
+Q2 <- Q[,-1]
+rownames(Q2) <- Q[,1]
 
-## Establish environmental variable distributions for sampling ##
+## Run RLQ analysis ##
+coa1 <- dudi.coa(L2, scannf=FALSE, nf=2)
+dudimil <- dudi.hillsmith(R2, scannf=FALSE, nf=2, row.w = coa1$lw)
+duditrait <- dudi.hillsmith(Q2, scannf=FALSE, nf=2, row.w = coa1$cw)
+
+rlq1 <- rlq(dudimil, coa1, duditrait, scannf=FALSE, nf=2) # conduct RLQ
+
+plot(rlq1)
+
+summary(rlq1)
+randtest(rlq1)
+
+par(mfrow=c(1,1))
+s.arrow(rlq1$l1, boxes=FALSE, grid=FALSE) # environmental variables
+s.arrow(rlq1$c1, boxes=FALSE, grid=FALSE) # traits
+s.label(rlq1$lQ, boxes=FALSE, grid=FALSE, clabel=0.75) # species
+s.label(rlq1$lR, boxes=FALSE, grid=FALSE) # sites
+
+## Validate with NMDS ##
+ord <- metaMDS(L2)
+ord
+
+plot(ord, type="n")
+text(ord, display="sites", cex=0.7, col="blue")
+
+plot(ord, type="n")
+points(ord, display="sites", cex=0.5, col="black")
+text(ord, display="species", cex=0.5, col="blue")
+
+ordiplot(ord, type="n")
+text(ord, display="sites", cex=0.7, col="blue")
+ordihull(ord, groups = R2$Region, display="sites")
+points(ord, display="species", cex=0.5, col="red")
 
 
-## Establish simulation function ##
-sim <- function(numInd = 20, numTrt = 5, trtVar = "normal", missDat = FALSE){
-  #################################################################################################################
-  ## Simulates morphometric trait data from a population of three (3) butterflies along an elevational gradient. ##
-  ##                                                                                                             ##
-  ## numInd = number of individuals to sample per species.                                                       ##
-  ## numTrt = number of traits to sample per individual.                                                         ##
-  ## trtVar = variance within a particular trait ("low", "normal", "high", "mixed").                             ##
-  ## missDat = should missing data be injected into the final dataset.                                           ##
-  #################################################################################################################
-  
-  ## Generate environmental variables per elevation ##
-  loElevTemp <- rep(rnorm(1, mean=20, sd=1), numInd)
-  midElevTemp <- rep(rnorm(1, mean=15, sd=1), numInd)
-  hiElevTemp <- rep(rnorm(1, mean=5, sd=1), numInd)
-    
-  loElevWind <- rep(abs(rnorm(1, mean=5, sd=2)), numInd)
-  midElevWind <- rep(abs(rnorm(1, mean=10, sd=2)), numInd)
-  hiElevWind <- rep(abs(rnorm(1, mean=10, sd=2)), numInd)
-  
-  siteCode1 <- rep(1, numInd)
-  siteCode2 <- rep(2, numInd)
-  siteCode3 <- rep(3, numInd)
-  
-  site <- append(append(siteCode1, siteCode2), siteCode3)
-  
-  temp <- append(append(loElevTemp, midElevTemp), hiElevTemp)
-  wind <- append(append(loElevWind, midElevWind), hiElevWind)
-  
-  ## Establish environmental matrix ##
-  envMatrix <- matrix(nrow = numInd*numSites, ncol = 3)
-  envMatrix[,1] <- site
-  envMatrix[,2] <- temp
-  envMatrix[,3] <- wind
-  
-  ## Generate trait variables per individual per site ##
-  tempMatrix <- matrix(nrow = numInd*numSites, ncol=numTrt)
-  
-  if(trtVar == "normal"){
-    for(i in 1:numTrt){
-      loTrt <- ((loElevTemp[1]+loElevWind[1])*rnorm(1, mean=1, sd=0.25))*abs(rnorm(numInd, mean=0, sd=1))
-      midTrt <- ((midElevTemp[1]+midElevWind[1])*rnorm(1, mean=1, sd=0.25))*abs(rnorm(numInd, mean=0, sd=1))
-      hiTrt <- ((hiElevTemp[1]+hiElevWind[1])*rnorm(1, mean=1, sd=0.25))*abs(rnorm(numInd, mean=0, sd=1))
-      
-      tempMatrix[,i] <- append(append(loTrt, midTrt), hiTrt)
-    }
-  }
-  
-  if(trtVar == "low"){
-    for(i in 1:numTrt){
-      loTrt <- ((loElevTemp[1]+loElevWind[1])*rnorm(1, mean=1, sd=0.25))*abs(rnorm(numInd, mean=0, sd=0.5))
-      midTrt <- ((midElevTemp[1]+midElevWind[1])*rnorm(1, mean=1, sd=0.25))*abs(rnorm(numInd, mean=0, sd=0.5))
-      hiTrt <- ((hiElevTemp[1]+hiElevWind[1])*rnorm(1, mean=1, sd=0.25))*abs(rnorm(numInd, mean=0, sd=0.5))
-      
-      tempMatrix[,i] <- append(append(loTrt, midTrt), hiTrt)
-    }
-  }
-  
-  if(trtVar == "high"){
-    for(i in 1:numTrt){
-      loTrt <- ((loElevTemp[1]+loElevWind[1])*rnorm(1, mean=1, sd=0.25))*abs(rnorm(numInd, mean=0, sd=1.5))
-      midTrt <- ((midElevTemp[1]+midElevWind[1])*rnorm(1, mean=1, sd=0.25))*abs(rnorm(numInd, mean=0, sd=1.5))
-      hiTrt <- ((hiElevTemp[1]+hiElevWind[1])*rnorm(1, mean=1, sd=0.25))*abs(rnorm(numInd, mean=0, sd=1.5))
-      
-      tempMatrix[,i] <- append(append(loTrt, midTrt), hiTrt)
-    }
-  }
-  
-  ## Establish trait matrix ##
-  traitMatrix <- matrix(nrow = numInd*numSites, ncol=numTrt+1)
-  traitMatrix[,1] <- site
-  traitMatrix[,1:numTrt+1] <- tempMatrix
-    
-  return(list(envMatrix, traitMatrix))
-}
+## Anosim ##
+L.dist <- vegdist(L2)
+L.ano <- anosim(L.dist, R2$Region, permutations = 999)
+summary(L.ano)
 
-data <- sim()
-df.traits <- as.data.frame(data[[2]])
-df.traits$V1 <- as.factor(df.traits$V1)
-df.env <- as.data.frame(data[[1]])
+## Vector Fit ##
+vf <- envfit(ord, R2, permutations = 999)
 
-## Principal Components Analysis ##
-time.init <- Sys.time()
-autoplot(prcomp(df.traits[,2:ncol(df.traits)]), data=df.traits, colour='V1', loadings = TRUE, loadings.label = TRUE)
-pca.Time <- Sys.time() - time.init
+plot(ord, type="n")
+text(ord, display="sites", cex=0.7, col="red")
+plot(vf)
 
-## Detrended Correspondance Analysis ##
 
-## Canonical Correspondance Analysis ##
+## 4th Corner ##
+fcQ <- fourthcorner.rlq(rlq1, type="Q.axes") # test trait signficance to rlq axes
+fcR <- fourthcorner.rlq(rlq1, type="R.axes") # test environment signficance to rlq axes
 
-## Non-metric Multidimensional Scaling ##
+plot(fcQ, alpha=0.05, type="table", stat="D2")
+plot(fcR, alpha=0.05, type="table", stat="D2")
 
+plot(fcQ, alpha=0.05, type="biplot", stat="D2", col=c("black", "blue", "orange", "green"))
+plot(fcR, alpha=0.05, type="biplot", stat="D2", col=c("black", "blue", "orange", "green"))
